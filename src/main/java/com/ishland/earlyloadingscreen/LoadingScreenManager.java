@@ -5,12 +5,11 @@ import com.google.common.collect.Lists;
 import com.ishland.earlyloadingscreen.platform_cl.AppLoaderAccessSupport;
 import com.ishland.earlyloadingscreen.platform_cl.Config;
 import com.ishland.earlyloadingscreen.render.GLText;
+import net.zhuruoling.util.SharedVariable;
+import net.zhuruoling.util.Util;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.PointerBuffer;
-import org.lwjgl.glfw.Callbacks;
-import org.lwjgl.glfw.GLFW;
-import org.lwjgl.glfw.GLFWErrorCallback;
-import org.lwjgl.glfw.GLFWVidMode;
+import org.lwjgl.glfw.*;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
@@ -37,11 +36,7 @@ import static com.ishland.earlyloadingscreen.render.GLText.GLT_RIGHT;
 import static com.ishland.earlyloadingscreen.render.GLText.GLT_TOP;
 import static com.ishland.earlyloadingscreen.render.GLText.gltCreateText;
 import static com.ishland.earlyloadingscreen.render.GLText.gltSetText;
-import static org.lwjgl.glfw.GLFW.glfwGetCurrentContext;
-import static org.lwjgl.glfw.GLFW.glfwGetFramebufferSize;
-import static org.lwjgl.glfw.GLFW.glfwGetPrimaryMonitor;
-import static org.lwjgl.glfw.GLFW.glfwGetVideoMode;
-import static org.lwjgl.glfw.GLFW.glfwSetWindowPos;
+import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL32.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL32.GL_DEPTH_BUFFER_BIT;
@@ -61,6 +56,7 @@ public class LoadingScreenManager {
         LOGGER.info("Initializing LoadingScreenManager...");
         windowEventLoop = new WindowEventLoop();
         AppLoaderAccessSupport.setAccess(LoadingScreenManager::tryCreateProgressHolder);
+        Util.addAppender();
     }
 
     public static void init() {
@@ -138,7 +134,7 @@ public class LoadingScreenManager {
         if (!GLFW.glfwInit()) {
             throw new IllegalStateException("Failed to initialize GLFW, errors: " + Joiner.on(",").join(list));
         } else {
-            for(String string : list) {
+            for (String string : list) {
                 LOGGER.error("GLFW error collected during initialization: {}", string);
             }
 
@@ -210,7 +206,7 @@ public class LoadingScreenManager {
         public final GLText.GLTtext memoryUsage = gltCreateText();
         public final GLText.GLTtext fpsText = gltCreateText();
         private final GLText.GLTtext progressText = gltCreateText();
-
+        private final GLText.GLTtext logText = gltCreateText();
         private final Object progressSync = new Object();
         private final Set<Progress> activeProgress = new LinkedHashSet<>();
 
@@ -238,6 +234,25 @@ public class LoadingScreenManager {
                         1.0f,
                         GLT_RIGHT, GLT_TOP
                 );
+                StringBuilder stringBuilder = new StringBuilder();
+                synchronized (SharedVariable.logCache) {
+                    int len = SharedVariable.logCache.size();
+                    if (len > 25) {
+                        SharedVariable.logCache.subList(len - 24, len - 1).forEach(s -> stringBuilder.append(s).append("\n"));
+                    }else {
+                        SharedVariable.logCache.forEach(s -> stringBuilder.append(s).append("\n"));
+                    }
+                }
+                gltSetText(this.logText, stringBuilder.toString());
+                glt.gltDrawText2DAligned(
+                        this.logText,
+                        0,
+                        16,
+                        1.0f,
+                        GLT_LEFT,
+                        GLT_TOP
+                );
+
                 glt.gltDrawText2DAligned(
                         this.fpsText,
                         0,
@@ -390,17 +405,17 @@ public class LoadingScreenManager {
 
                     GLFW.glfwPollEvents();
                     GLFW.glfwSwapBuffers(handle);
-                    fpsCounter ++;
+                    fpsCounter++;
                     final long currentTime = System.nanoTime();
-                    if (currentTime - lastFpsTime >= 1_000_000_000L) {
-                        fps = (int) (fpsCounter * 1000_000_000L / (currentTime - lastFpsTime));
-                        fpsCounter = 0;
-                        lastFpsTime = currentTime;
-                        gltSetText(renderLoop.fpsText, "%d fps".formatted(fps));
-                    }
-                    while ((System.nanoTime() - lastFrameTime) + 100_000L < 1_000_000_000L / 60L) {
-                        LockSupport.parkNanos(100_000L);
-                    }
+//                    if (currentTime - lastFpsTime >= 1_000_000_000L) {
+//                        fps = (int) (fpsCounter * 1000_000_000L / (currentTime - lastFpsTime));
+//                        fpsCounter = 0;
+//                        lastFpsTime = currentTime;
+//                        gltSetText(renderLoop.fpsText, "%d fps".formatted(fps));
+//                    }
+//                    while ((System.nanoTime() - lastFrameTime) + 100_000L < 1_000_000_000L / 60L) {
+//                        LockSupport.parkNanos(100_000L);
+//                    }
                     lastFrameTime = System.nanoTime();
                 }
             } catch (Throwable t) {
