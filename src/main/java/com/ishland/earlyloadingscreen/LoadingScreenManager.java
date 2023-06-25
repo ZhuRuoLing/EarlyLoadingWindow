@@ -10,7 +10,10 @@ import net.zhuruoling.util.SharedVariable;
 import net.zhuruoling.util.Util;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.PointerBuffer;
-import org.lwjgl.glfw.*;
+import org.lwjgl.glfw.Callbacks;
+import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWErrorCallback;
+import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
@@ -30,18 +33,10 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 
 import static com.ishland.earlyloadingscreen.SharedConstants.LOGGER;
-import static com.ishland.earlyloadingscreen.render.GLText.GLT_BOTTOM;
-import static com.ishland.earlyloadingscreen.render.GLText.GLT_LEFT;
-import static com.ishland.earlyloadingscreen.render.GLText.GLT_RIGHT;
-import static com.ishland.earlyloadingscreen.render.GLText.GLT_TOP;
-import static com.ishland.earlyloadingscreen.render.GLText.gltCreateText;
-import static com.ishland.earlyloadingscreen.render.GLText.gltSetText;
+import static com.ishland.earlyloadingscreen.render.GLText.*;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.glViewport;
-import static org.lwjgl.opengl.GL32.GL_COLOR_BUFFER_BIT;
-import static org.lwjgl.opengl.GL32.GL_DEPTH_BUFFER_BIT;
-import static org.lwjgl.opengl.GL32.glClear;
-import static org.lwjgl.opengl.GL32.glClearColor;
+import static org.lwjgl.opengl.GL32.*;
 
 public class LoadingScreenManager {
 
@@ -137,7 +132,7 @@ public class LoadingScreenManager {
         if (!GLFW.glfwInit()) {
             throw new IllegalStateException("Failed to initialize GLFW, errors: " + Joiner.on(",").join(list));
         } else {
-            for (String string : list) {
+            for(String string : list) {
                 LOGGER.error("GLFW error collected during initialization: {}", string);
             }
 
@@ -209,7 +204,6 @@ public class LoadingScreenManager {
         public final GLText.GLTtext memoryUsage = gltCreateText();
         public final GLText.GLTtext fpsText = gltCreateText();
         private final GLText.GLTtext progressText = gltCreateText();
-        private final GLText.GLTtext logText = gltCreateText();
         private final Object progressSync = new Object();
         private final Set<Progress> activeProgress = new LinkedHashSet<>();
 
@@ -218,6 +212,8 @@ public class LoadingScreenManager {
             Progress.class.getName(); // load class
         }
 
+        private final GLText.GLTtext logText = gltCreateText();
+
         public void render(int width, int height) {
 //            glfwGetFramebufferSize(glfwGetCurrentContext(), width, height);
 //            glViewport(0, 0, width[0], height[0]);
@@ -225,7 +221,6 @@ public class LoadingScreenManager {
 
             try (final Closeable ignored = glt.gltBeginDraw()) {
                 glt.gltColor(1.0f, 1.0f, 1.0f, 1.0f);
-
                 gltSetText(this.memoryUsage, "Memory: %d/%d MiB".formatted(
                         (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024L / 1024L,
                         Runtime.getRuntime().maxMemory() / 1024L / 1024L
@@ -236,6 +231,13 @@ public class LoadingScreenManager {
                         0,
                         1.0f,
                         GLT_RIGHT, GLT_TOP
+                );
+                glt.gltDrawText2DAligned(
+                        this.fpsText,
+                        0,
+                        0,
+                        1.0f,
+                        GLT_LEFT, GLT_TOP
                 );
                 StringBuilder stringBuilder = new StringBuilder();
                 synchronized (SharedVariable.logCache) {
@@ -255,15 +257,6 @@ public class LoadingScreenManager {
                         GLT_LEFT,
                         GLT_TOP
                 );
-
-                glt.gltDrawText2DAligned(
-                        this.fpsText,
-                        0,
-                        0,
-                        1.0f,
-                        GLT_LEFT, GLT_TOP
-                );
-
                 StringBuilder sb = new StringBuilder();
                 synchronized (progressSync) {
                     for (Progress progress : activeProgress) {
@@ -357,7 +350,6 @@ public class LoadingScreenManager {
         private final AtomicBoolean running = new AtomicBoolean(true);
         private final ConcurrentLinkedQueue<Runnable> queue = new ConcurrentLinkedQueue<>();
 
-        private volatile long windowHandle = 0L;
         private volatile boolean needsCreateWindow;
         private volatile boolean initialized = false;
         public volatile RenderLoop renderLoop = null;
@@ -372,14 +364,14 @@ public class LoadingScreenManager {
             try {
                 long handle;
                 if (needsCreateWindow) {
-                    this.windowHandle = handle = initWindow();
+                    LoadingScreenManager.handle = handle = initWindow();
                 } else {
                     handle = LoadingScreenManager.handle;
                 }
                 GLFW.glfwMakeContextCurrent(handle);
                 GL.createCapabilities();
                 glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-                GLFW.glfwSwapInterval(1);
+                GLFW.glfwSwapInterval(0);
 
                 RenderLoop renderLoop = this.renderLoop = new RenderLoop();
 
@@ -414,19 +406,21 @@ public class LoadingScreenManager {
                     glViewport(0, 0, width[0], height[0]);
                     renderLoop.render(width[0], height[0]);
 
-                    //GLFW.glfwPollEvents();
+                    if (!PlatformDependent.isOsx()) {
+                        GLFW.glfwPollEvents();
+                    }
                     GLFW.glfwSwapBuffers(handle);
-                    fpsCounter++;
+                    fpsCounter ++;
                     final long currentTime = System.nanoTime();
-//                    if (currentTime - lastFpsTime >= 1_000_000_000L) {
-//                        fps = (int) (fpsCounter * 1000_000_000L / (currentTime - lastFpsTime));
-//                        fpsCounter = 0;
-//                        lastFpsTime = currentTime;
-//                        gltSetText(renderLoop.fpsText, "%d fps".formatted(fps));
-//                    }
-//                    while ((System.nanoTime() - lastFrameTime) + 100_000L < 1_000_000_000L / 60L) {
-//                        LockSupport.parkNanos(100_000L);
-//                    }
+                    if (currentTime - lastFpsTime >= 1_000_000_000L) {
+                        fps = (int) (fpsCounter * 1000_000_000L / (currentTime - lastFpsTime));
+                        fpsCounter = 0;
+                        lastFpsTime = currentTime;
+                        gltSetText(renderLoop.fpsText, "%d fps".formatted(fps));
+                    }
+                    while ((System.nanoTime() - lastFrameTime) + 100_000L < 1_000_000_000L / 60L) {
+                        LockSupport.parkNanos(100_000L);
+                    }
                     lastFrameTime = System.nanoTime();
                 }
             } catch (Throwable t) {
@@ -447,7 +441,7 @@ public class LoadingScreenManager {
 
         public void setWindowTitle(CharSequence title) {
             if (needsCreateWindow) {
-                this.execute(() -> GLFW.glfwSetWindowTitle(this.windowHandle, title));
+                this.execute(() -> GLFW.glfwSetWindowTitle(handle, title));
             } else {
                 GLFW.glfwSetWindowTitle(handle, title);
             }

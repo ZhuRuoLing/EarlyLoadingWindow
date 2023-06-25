@@ -930,7 +930,7 @@ public class GLText {
                 continue;
             }
 
-            if (!gltIsCharacterSupported(c)) {
+            if (!gltIsCharacterSupported(c) || (c - _gltFontGlyphMinChar) < 0) {
                 // Handle unsupported character
                 continue;
             }
